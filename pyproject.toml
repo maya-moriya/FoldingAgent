@@ -1,0 +1,40 @@
+[project]
+name = "foldingagent"
+version = "0.1.0"
+description = "Inferring parametric origami procedures from demonstration videos with an LLM agent"
+readme = "README.md"
+authors = [
+    { name = "Maya Moriya", email = "maya.moriya@weizmann.ac.il" }
+]
+requires-python = ">=3.11"
+license = { text = "MIT" }
+keywords = ["origami", "llm-agent", "program-synthesis", "computer-vision"]
+classifiers = [
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "anthropic>=0.40",
+    "google-genai>=0.3",
+    "openai>=1.40",
+    "matplotlib>=3.7",
+    "pillow>=10.0",
+    "pydantic>=2.0",
+    "foldingagent-simulator",
+]
+
+[project.scripts]
+foldingagent = "foldingagent.main:_cli"
+
+[project.urls]
+Repository = "https://github.com/maya-moriya/FoldingAgent"
+
+[tool.uv.sources]
+foldingagent-simulator = { git = "https://github.com/maya-moriya/FoldingAgentSimulator.git" }
+
+[build-system]
+requires = ["uv_build>=0.9.7,<0.10.0"]
+build-backend = "uv_build"

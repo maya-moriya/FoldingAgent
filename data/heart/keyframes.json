@@ -1,0 +1,25 @@
+{
+  "name": "heart",
+  "frames": "frames",
+  "front_color": "white",
+  "back_color": "red",
+  "keyframes": [
+    4,
+    10,
+    38,
+    50,
+    89,
+    99,
+    122,
+    147,
+    192,
+    242,
+    287,
+    307,
+    345,
+    392,
+    470,
+    490,
+    509
+  ]
+}

@@ -1,0 +1,1485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Origami Agent · Viewer</title>
+<style>
+:root {
+  --bg:      #0d0f17;
+  --panel:   #141623;
+  --card:    #1b1e2f;
+  --border:  #272c45;
+  --text:    #dde3f0;
+  --muted:   #5a6380;
+  --sim:     #f59e42;
+  --inspect: #60a5fa;
+  --compare: #c084fc;
+  --save:    #4ade80;
+  --restore: #f87171;
+  --thought: #818cf8;
+  --rollback: #fb923c;
+  --timeout:  #fbbf24;
+  --comparator: #e879f9;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, sans-serif; font-size: 13px; line-height: 1.55; }
+
+/* ── Header ── */
+#header {
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  padding: 11px 28px;
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+#header h1 { font-size: 14px; font-weight: 600; letter-spacing: .02em; color: #a5b4fc; white-space: nowrap; }
+.dir-label { font-size: 11px; color: var(--muted); font-family: monospace; }
+.badge {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 5px; padding: 2px 9px; font-size: 11px; color: var(--muted);
+}
+.badge b { color: var(--text); font-weight: 500; }
+.badge.ok  { border-color: #4ade8040; color: #4ade80; }
+.badge.err { border-color: #f8717140; color: #f87171; }
+
+/* ── Landing (no ?dir) ── */
+#landing {
+  max-width: 520px; margin: 80px auto; padding: 32px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+}
+#landing h2 { font-size: 16px; margin-bottom: 12px; color: var(--text); }
+#landing p  { color: var(--muted); font-size: 12px; margin-bottom: 20px; line-height: 1.7; }
+#dir-input {
+  width: 100%; padding: 8px 12px;
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 6px; color: var(--text); font-family: monospace; font-size: 12px;
+  outline: none;
+}
+#dir-input:focus { border-color: #60a5fa60; }
+#go-btn {
+  margin-top: 10px; padding: 8px 20px;
+  background: #1e3a5f; border: 1px solid #60a5fa40;
+  border-radius: 6px; color: #60a5fa; font-size: 12px; cursor: pointer;
+}
+#go-btn:hover { background: #1e3a5f; filter: brightness(1.15); }
+.example-list { margin-top: 16px; }
+.example-list p { font-size: 11px; color: var(--muted); margin-bottom: 6px; }
+.example-item {
+  display: block; padding: 5px 10px; margin-bottom: 4px;
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 5px; font-family: monospace; font-size: 11px;
+  color: var(--inspect); cursor: pointer; text-decoration: none;
+}
+.example-item:hover { border-color: var(--inspect); }
+
+/* ── Error ── */
+#error-box {
+  max-width: 500px; margin: 60px auto; padding: 24px;
+  background: #2d0f0f; border: 1px solid #f8717130; border-radius: 10px;
+  color: #f87171; font-size: 13px;
+}
+
+/* ── Main ── */
+#main { padding: 28px 24px; }
+#steps { position: relative; }
+
+/* ── Progress rail ── */
+.progress-rail {
+  display: flex; flex-direction: column; margin-bottom: 32px;
+  border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--card);
+}
+.rail-row {
+  display: grid;
+  grid-template-columns: repeat(var(--frame-count, 1), minmax(0, 1fr));
+}
+.rail-row + .rail-row { border-top: 1px solid var(--border); }
+.rail-frame {
+  flex: 1; padding: 8px 4px; text-align: center; cursor: pointer;
+  transition: background .15s; border-right: 1px solid var(--border); position: relative;
+}
+.rail-row .rail-frame:last-child { border-right: none; }
+.rail-frame:hover { background: var(--panel); }
+.rail-frame.saved { background: #16532808; }
+.rail-frame.auto  { background: #fbbf2408; }
+.rail-frame img {
+  width: 100%;
+  max-width: none;
+  height: auto;
+  object-fit: contain;
+  border-radius: 4px;
+  display: block;
+  margin: 0 0 4px;
+}
+.rail-frame .rfl { font-size: 10px; color: var(--muted); }
+.rail-frame .check { position: absolute; top: 5px; right: 6px; color: var(--save); font-size: 12px; }
+.rail-frame.placeholder { cursor: default; }
+.rail-frame.placeholder:hover { background: transparent; }
+.rail-frame.placeholder .rfl { opacity: .7; }
+
+/* ── Step block ── */
+.step-block { margin-bottom: 28px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.step-head {
+  background: var(--panel); padding: 9px 16px; display: flex; align-items: center;
+  gap: 10px; border-bottom: 1px solid var(--border);
+}
+.step-number {
+  font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
+  color: var(--muted); padding: 2px 8px; border-radius: 4px; background: var(--card); border: 1px solid var(--border);
+}
+.step-title { font-weight: 600; font-size: 13px; }
+.step-pill { margin-left: auto; font-size: 11px; padding: 2px 9px; border-radius: 99px; font-weight: 600; }
+.pill-saved   { background: #16532815; color: var(--save);    border: 1px solid #4ade8030; }
+.pill-failed  { background: #7f1d1d15; color: var(--restore); border: 1px solid #f8717130; }
+.pill-running  { background: #1e1b4b15; color: var(--thought); border: 1px solid #818cf830; }
+.pill-rollback-head { background: #fb923c15; color: var(--rollback); border: 1px solid #fb923c30; }
+.pill-timeout-head  { background: #fbbf2415; color: var(--timeout);  border: 1px solid #fbbf2430; }
+
+.step-body { display: grid; grid-template-columns: 192px 1fr; }
+.step-side {
+  background: var(--card); border-right: 1px solid var(--border);
+  padding: 14px 12px; display: flex; flex-direction: column; gap: 14px;
+}
+.frame-box .lbl { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 5px; }
+.frame-box img {
+  width: 100%; border-radius: 6px; cursor: pointer;
+  border: 1px solid var(--border); transition: border-color .15s; display: block;
+}
+.frame-box img:hover { border-color: var(--inspect); }
+.frame-sep { border: none; border-top: 1px dashed var(--border); }
+
+/* ── Events ── */
+.step-events { padding: 14px 18px; }
+.retry-marker {
+  display: flex; align-items: center; gap: 8px;
+  margin: 10px 0 8px; font-size: 11px; color: var(--restore); font-weight: 600; letter-spacing: .04em;
+}
+.retry-marker::before, .retry-marker::after { content: ''; flex: 1; height: 1px; background: #f8717120; }
+.rollback-marker {
+  display: flex; align-items: center; gap: 8px;
+  margin: 10px 0 8px; font-size: 11px; color: var(--rollback); font-weight: 600; letter-spacing: .04em;
+}
+.rollback-marker::before, .rollback-marker::after { content: ''; flex: 1; height: 1px; background: #fb923c20; }
+.timeout-marker {
+  display: flex; align-items: center; gap: 8px;
+  margin: 10px 0 8px; font-size: 11px; color: var(--timeout); font-weight: 600; letter-spacing: .04em;
+}
+.timeout-marker::before, .timeout-marker::after { content: ''; flex: 1; height: 1px; background: #fbbf2420; }
+
+.event-row { display: flex; align-items: flex-start; gap: 8px; padding: 2px 0; min-height: 26px; }
+.event-row.compact-thought { align-items: center; min-height: 22px; }
+.event-dot { width: 5px; height: 5px; border-radius: 50%; margin-top: 7px; flex-shrink: 0; }
+.dot-sim     { background: var(--sim); }
+.dot-inspect { background: var(--inspect); }
+.dot-compare { background: var(--compare); }
+.dot-save     { background: var(--save); }
+.dot-restore  { background: var(--restore); }
+.dot-thought  { background: var(--thought); }
+.dot-model    { background: var(--muted); }
+.dot-rollback { background: var(--rollback); }
+.dot-timeout  { background: var(--timeout); }
+.event-body { flex: 1; min-width: 0; }
+
+/* ── Pills ── */
+.pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 2px 9px; border-radius: 5px;
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace; font-size: 11.5px;
+  cursor: pointer; border: 1px solid transparent; transition: filter .15s; user-select: none; line-height: 1.6;
+}
+.pill:hover { filter: brightness(1.15); }
+.pill-sim     { background: #f59e4212; border-color: #f59e4235; color: var(--sim); }
+.pill-inspect { background: #60a5fa12; border-color: #60a5fa35; color: var(--inspect); }
+.pill-compare { background: #c084fc12; border-color: #c084fc35; color: var(--compare); }
+.pill-save     { background: #4ade8012; border-color: #4ade8035; color: var(--save); font-weight: 700; }
+.pill-restore  { background: #f8717112; border-color: #f8717135; color: var(--restore); font-weight: 700; }
+.pill-thought  { background: #818cf810; border-color: #818cf828; color: var(--thought); }
+.pill-model    { background: #94a3b810; border-color: #94a3b828; color: #94a3b8; }
+.pill-rollback { background: #fb923c12; border-color: #fb923c35; color: var(--rollback); font-weight: 700; }
+.pill-timeout  { background: #fbbf2412; border-color: #fbbf2435; color: var(--timeout); font-weight: 700; }
+.pill-icon    { font-style: normal; font-size: 12px; }
+
+/* ── Expand panels ── */
+.expand-panel { display: none; margin-top: 6px; margin-left: 13px; }
+.expand-panel.open { display: block; }
+.json-box {
+  padding: 8px 12px; background: var(--card); border: 1px solid var(--border);
+  border-radius: 6px; font-family: monospace; font-size: 11px; color: #a5b4fc;
+  white-space: pre; overflow-x: auto; max-height: 260px; overflow-y: auto; line-height: 1.5;
+}
+.thought-box {
+  padding: 10px 14px; background: var(--card); border: 1px solid var(--border);
+  border-radius: 6px; font-size: 12px; color: #94a3b8; white-space: pre-wrap;
+  line-height: 1.65; max-height: 320px; overflow-y: auto;
+}
+.thought-box-compact {
+  display: inline-flex;
+  align-items: center;
+  width: auto;
+  max-width: 100%;
+  padding: 4px 10px;
+  white-space: nowrap;
+  line-height: 1.35;
+}
+.compare-wrap { display: block; }
+.compare-panel {
+  border: 1px solid var(--border); border-radius: 6px; overflow: hidden;
+  display: inline-flex; flex-direction: column; max-width: 100%;
+}
+.compare-panel .cp-label {
+  background: var(--panel); padding: 4px 10px; font-size: 10px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .04em; border-bottom: 1px solid var(--border);
+}
+.compare-panel img { width: auto; max-width: 100%; height: auto; display: block; cursor: pointer; }
+.compare-panel img:hover { opacity: .9; }
+.compare-full {
+  min-width: 0;
+  width: min(48%, 280px);
+}
+.critic-grid-img {
+  width: 100%;
+  margin: 0 auto;
+}
+.event-preview-img {
+  width: min(48%, 280px);
+  max-width: 100%;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  display: block;
+}
+.motion-strip-img {
+  width: min(100%, 560px);
+}
+.verdict-row { display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
+.legend-entry { background: var(--card); border: 1px solid var(--border); border-radius: 5px; padding: 3px 10px; font-size: 11px; color: var(--muted); }
+.legend-entry b { color: var(--compare); margin-right: 4px; }
+.critic-summary-row {
+  display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap; align-items: flex-start;
+}
+.critic-detail-grid {
+  display: grid; gap: 10px; margin-top: 10px;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  align-items: flex-start;
+}
+.critic-detail-card {
+  background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px;
+  min-width: 0; grid-column: span 4;
+}
+.critic-detail-label {
+  font-size: 10px; color: var(--muted); text-transform: uppercase;
+  letter-spacing: .05em; margin-bottom: 7px;
+}
+.critic-card-compact { flex: 0 0 auto; min-width: 140px; }
+.critic-card-anchor { flex: 1 1 320px; min-width: min(320px, 100%); }
+.critic-card-wide { grid-column: span 8; }
+.critic-card-full { grid-column: 1 / -1; }
+.critic-inline-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.critic-status {
+  display: inline-flex; align-items: center; padding: 2px 9px; border-radius: 999px;
+  border: 1px solid var(--border); font-size: 11px; font-weight: 700; letter-spacing: .03em;
+}
+.critic-status.exact { color: var(--save); border-color: #4ade8035; background: #16532815; }
+.critic-status.acceptable { color: #fbbf24; border-color: #fbbf2435; background: #78350f20; }
+.critic-status.mismatch { color: var(--restore); border-color: #f8717135; background: #7f1d1d15; }
+.critic-status.unavailable { color: var(--muted); }
+.critic-list {
+  margin: 0; padding-left: 18px; color: var(--text); font-size: 12px;
+}
+.critic-list li + li { margin-top: 5px; }
+.critic-empty { color: var(--muted); font-size: 12px; }
+.action-context {
+  display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px;
+  max-width: min(760px, 100%);
+}
+.action-context-label {
+  font-size: 10px; color: var(--muted); text-transform: uppercase;
+  letter-spacing: .05em;
+}
+.action-thought-box { max-height: none; }
+
+/* ── Modal ── */
+#modal { display: none; position: fixed; inset: 0; background: rgba(5,6,15,.93); z-index: 200; align-items: center; justify-content: center; cursor: zoom-out; }
+#modal.open { display: flex; }
+#modal-inner {
+  max-width: min(92vw, 900px); max-height: 90vh; overflow: auto;
+  background: var(--panel); padding: 20px; border-radius: 12px; cursor: default;
+  border: 1px solid var(--border); box-shadow: 0 24px 60px rgba(0,0,0,.6);
+}
+#modal-inner img { max-width: 100%; border-radius: 6px; display: block; }
+.modal-hint { text-align: center; margin-top: 10px; font-size: 11px; color: var(--muted); }
+
+/* ── Finish banner ── */
+.finish-banner {
+  border: 1px solid var(--border); border-radius: 10px; padding: 14px 20px;
+  background: var(--panel); display: flex; gap: 20px; align-items: center; margin-top: 8px; flex-wrap: wrap;
+}
+.finish-banner .fb-reason { color: var(--muted); font-size: 12px; }
+.finish-banner .fb-reason span { color: var(--text); }
+.finish-banner .fb-cp { font-size: 12px; color: var(--muted); }
+.finish-banner .fb-cp b { color: var(--save); }
+
+/* ── Comparator ── */
+.dot-comparator { background: var(--comparator); }
+.pill-comparator { background: #e879f912; border-color: #e879f935; color: var(--comparator); font-weight: 700; }
+.comparator-grid {
+  display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; align-items: flex-end;
+}
+.comparator-card {
+  border: 2px solid var(--border); border-radius: 8px; overflow: hidden;
+  background: var(--card); text-align: center; min-width: 0; flex: 0 0 auto;
+  width: min(140px, 22%);
+}
+.comparator-card.chosen { border-color: var(--comparator); box-shadow: 0 0 12px #e879f930; }
+.comparator-card.target { border-color: var(--inspect); }
+.comparator-card img { width: 100%; display: block; cursor: pointer; }
+.comparator-card-label {
+  padding: 4px 6px; font-size: 10px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .04em;
+  border-top: 1px solid var(--border);
+}
+.comparator-card.chosen .comparator-card-label { color: var(--comparator); font-weight: 700; }
+.comparator-card.target .comparator-card-label { color: var(--inspect); }
+.comparator-path {
+  margin-top: 8px; font-size: 11px; color: var(--muted); font-family: monospace;
+}
+.comparator-path b { color: var(--comparator); }
+.comparator-response {
+  margin-top: 6px; padding: 6px 10px; background: var(--card); border: 1px solid var(--border);
+  border-radius: 6px; font-size: 11px; color: #94a3b8; font-family: monospace;
+}
+
+@media (max-width: 860px) {
+  .step-body { grid-template-columns: 1fr; }
+  .step-side { border-right: none; border-bottom: 1px solid var(--border); }
+  .critic-summary-row { flex-direction: column; }
+  .critic-card-compact, .critic-card-anchor { min-width: 0; width: 100%; }
+  .critic-detail-grid { grid-template-columns: 1fr; }
+  .critic-detail-card, .critic-card-wide, .critic-card-full { grid-column: auto; }
+}
+</style>
+</head>
+<body>
+
+<div id="header">
+  <h1>◇ Origami Agent · Viewer</h1>
+  <span id="dir-display" class="dir-label"></span>
+  <div id="header-meta"></div>
+</div>
+
+<div id="root"></div>
+
+<div id="modal" onclick="handleModalBg(event)">
+  <div id="modal-inner">
+    <div id="modal-content"></div>
+    <div class="modal-hint">click outside · esc to close</div>
+  </div>
+</div>
+
+<script>
+// ── URL param ────────────────────────────────────────────────
+const params  = new URLSearchParams(location.search);
+const RUN_DIR = (params.get('dir') || '').replace(/\/$/, '');
+let RUN_WORK_DIR_ABS = '';
+
+// The viewer lives in viewers/, but ?dir= and every path a run records are
+// relative to the repository root. Resolve against that, never against the page,
+// so the same URL works in any clone served from its root.
+const REPO_BASE = new URL('../', location.href);
+function repoUrl(path) {
+  if (!path) return path;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(path)) return path;   // already a URL
+  return new URL(String(path).replace(/^\/+/, ''), REPO_BASE).href;
+}
+
+// Simple zoom — called via onclick="zoomImg(this)" so no quote escaping needed
+window.zoomImg = function(el) { openModal('<img src="' + el.src + '">'); };
+
+// ── Tool categories ──────────────────────────────────────────
+const TOOL_CAT = {
+  rotate:'sim', fold:'sim', flip:'sim', translate:'sim', scale:'sim', unfold:'sim', add_vertex:'sim',
+  get_current_state:'inspect', render_current:'inspect', view_frame:'inspect', observe_movement:'inspect', generate_checkpoint_overview:'inspect',
+  compare_render_to_frame:'compare', ask_critic:'compare',
+  save_checkpoint:'save',
+  restore_checkpoint:'restore',
+};
+const CAT_ICON = { sim:'⚙', inspect:'◎', compare:'⊞', save:'✓', restore:'↩', thought:'💭' };
+
+function cat(tool) { return TOOL_CAT[tool] || 'inspect'; }
+function isCriticTool(tool) { return tool === 'compare_render_to_frame' || tool === 'ask_critic'; }
+function isDecisionTool(tool) { return tool === 'fold' || tool === 'flip' || tool === 'rotate' || tool === 'unfold'; }
+function isMeaningfulThoughtText(text) {
+  const trimmed = String(text || '').trim();
+  return Boolean(trimmed && trimmed !== '.');
+}
+function isCompactableRepeatedLlmText(text) {
+  const trimmed = String(text || '').trim();
+  return Boolean(trimmed) && trimmed.length <= 3 && /^[\[\]\{\}\(\),.:;!?"'`]+$/.test(trimmed);
+}
+function isThoughtEvent(ev) {
+  return ev?.event === 'llm_text' && ev.is_thought !== false;
+}
+function isModelTextEvent(ev) {
+  return ev?.event === 'llm_text' && ev.is_thought === false;
+}
+
+function renderCollapsedLlmText(ev, text, count) {
+  const isThought = isThoughtEvent(ev);
+  const dotClass = isThought ? 'dot-thought' : 'dot-model';
+  const pillClass = isThought ? 'pill-thought' : 'pill-model';
+  const icon = isThought ? '💭' : '✎';
+  const detail = `Repeated ${count} short ${isThought ? 'thought' : 'model'} outputs: ${JSON.stringify(text)}`;
+  return `<div class="event-row compact-thought">
+    <div class="event-dot ${dotClass}"></div>
+    <div class="event-body">
+      <span class="pill ${pillClass}" title="${esc(detail)}">
+        <i class="pill-icon">${icon}</i> ... × ${count}
+      </span>
+      <div class="thought-box thought-box-compact" title="${esc(text)}">...</div>
+    </div>
+  </div>`;
+}
+
+function toolLabel(ev) {
+  const t = ev.tool, i = ev.input;
+  if (t === 'rotate')                  return `rotate(${i.angle}°)`;
+  if (t === 'fold')                    return `fold(edge=[${i.edge}], dir=${i.direction})`;
+  if (t === 'flip')                    return `flip(axis="${i.axis}")`;
+  if (t === 'add_vertex')              return `add_vertex(${JSON.stringify(i)})`;
+  if (t === 'save_checkpoint')         return `save_checkpoint(frame=${i.frame_n})`;
+  if (t === 'restore_checkpoint')      return `restore_checkpoint(frame=${i.frame_n})`;
+  if (t === 'compare_render_to_frame') return `compare_render(frame=${i.frame_n})`;
+  if (t === 'ask_critic')              return `ask_critic(frame=${i.frame_n}${i.fold_anchor ? ', anchor' : ''})`;
+  if (t === 'view_frame')              return `view_frame(n=${i.n})`;
+  if (t === 'observe_movement')        return `observe_movement(t=${i.t})`;
+  if (t === 'get_current_state')       return `get_current_state()`;
+  if (t === 'render_current')          return `render_current()`;
+  if (t === 'generate_checkpoint_overview') return `generate_checkpoint_overview()`;
+  return `${t}(${JSON.stringify(i)})`;
+}
+
+// Resolve an image path from the log — use the full absolute path when available
+// (handles resumed runs whose images live in a different run directory).
+function runDirImg(filename) {
+  const resolved = normalizeSrc(filename);
+  // Figures moved into figs/; runs recorded before that had them at the root.
+  return resolved || (RUN_DIR + '/figs/' + filename.split('/').pop());
+}
+
+// Frame images: the log path is relative to wherever the agent was invoked,
+// which varies between runs. Try the logged path first, then known prefixes.
+const IMG_PREFIXES = [''];
+window.imgFallback = function(el, fallbacks) {
+  if (!fallbacks.length) { el.onerror = null; return; }
+  el.onerror = () => imgFallback(el, fallbacks.slice(1));
+  el.src = fallbacks[0];
+};
+function uniq(list) {
+  return [...new Set(list.filter(Boolean))];
+}
+// Paths in a log are relative to the repo root, so they resolve as-is. Runs
+// recorded before that was fixed hold absolute paths; these markers salvage them.
+function repoRelativePath(src) {
+  if (!src || typeof src !== 'string' || !src.startsWith('/')) return null;
+  // The repo name is the most specific marker, so it wins; data/ and out/ cover
+  // a clone renamed to something else.
+  const repoIdx = src.lastIndexOf('/FoldingAgent/');
+  if (repoIdx >= 0) return src.slice(repoIdx + '/FoldingAgent/'.length);
+  for (const marker of ['/data/', '/out/']) {
+    const idx = src.lastIndexOf(marker);
+    if (idx >= 0) return src.slice(idx + 1);
+  }
+  return null;
+}
+function normalizeSrc(src) {
+  const value = String(src || '').trim();
+  return repoRelativePath(value) || value;
+}
+function candidatePaths(src) {
+  if (!src) return [];
+  src = normalizeSrc(src);
+  const paths = [src];
+  const inRunDir = src.startsWith(RUN_DIR + '/');
+  if (!inRunDir) {
+    paths.push(RUN_DIR + '/figs/' + src.split('/').pop());
+    paths.push(RUN_DIR + '/' + src.split('/').pop());
+  }
+  return paths;
+}
+function makeImgTag(srcOrSources, extraAttrs) {
+  const sources = Array.isArray(srcOrSources) ? srcOrSources : [srcOrSources];
+  const fallbacks = uniq(sources.flatMap(candidatePaths)).map(repoUrl);
+  if (!fallbacks.length) return '';
+  const [initialSrc, ...remainingFallbacks] = fallbacks;
+  const fbJson = JSON.stringify(remainingFallbacks).replace(/"/g, '&quot;');
+  return `<img src="${initialSrc}" onerror="imgFallback(this,${fbJson})" onclick="zoomImg(this)" ${extraAttrs || ''}>`;
+}
+
+function imgFromEvent(ev) {
+  if (!ev.output) return null;
+  if (ev.tool === 'view_frame' && ev.output.image_path)
+    return ev.output.image_path;
+  if (ev.tool === 'render_current' && ev.output.render_path)
+    return runDirImg(ev.output.render_path);
+  if (ev.tool === 'observe_movement' && ev.output.filmstrip_path)
+    return ev.output.filmstrip_path;
+  if (ev.tool === 'generate_checkpoint_overview' && ev.output.overview_path)
+    return ev.output.overview_path;
+  if (isCriticTool(ev.tool) && ev.output.grid_path)
+    return runDirImg(ev.output.grid_path);
+  return null;
+}
+
+function compareImages(ev) {
+  if (!isCriticTool(ev.tool) || !ev.output?.grid_path) return null;
+  const gridPath = normalizeSrc(ev.output.grid_path);
+  const fn = gridPath.split('/').pop();
+  const dir = gridPath.includes('/') ? gridPath.slice(0, gridPath.lastIndexOf('/')) : RUN_DIR;
+  // The log records only the grid; its source and result diagrams are siblings.
+  // Current runs name all three for the turn that drew them, so they share a prefix:
+  //   iter_0005_ask_critic_grid.png -> iter_0005_ask_critic_source.png / _result.png
+  const sibling = fn.match(/^(.*_)grid(\.png)$/);
+  if (sibling) {
+    const [, prefix, ext] = sibling;
+    return {
+      grid:   dir + '/' + fn,
+      source: dir + '/' + prefix + 'source' + ext,
+      result: dir + '/' + prefix + 'result' + ext,
+      legend: ev.output.legend,
+    };
+  }
+  // Older runs numbered figures globally, drawing source, result, then grid.
+  const digits = fn.match(/(\d+)/);
+  if (!digits) return { grid: dir + '/' + fn, source: null, result: null, legend: ev.output.legend };
+  const n = parseInt(digits[1], 10);
+  return {
+    grid:   dir + '/' + fn,
+    source: dir + '/source_diagram_' + String(n - 2).padStart(4, '0') + '.png',
+    result: dir + '/result_diagram_'  + String(n - 1).padStart(4, '0') + '.png',
+    legend: ev.output.legend,
+  };
+}
+
+// Build frame-number → image-path map from view_frame events in the log.
+// Falls back to a run-dir guess if a frame was never explicitly viewed.
+function inferFramePattern(path, frameNumber) {
+  if (!path || !Number.isInteger(frameNumber)) return null;
+  const match = String(path).match(/^(.*?)(\d+)(\.[^./]+)$/);
+  if (!match) return null;
+  const [, prefix, digits, ext] = match;
+  if (parseInt(digits, 10) !== frameNumber) return null;
+  return { prefix, width: digits.length, ext };
+}
+function buildFrameMap(events, totalFrames) {
+  const map = {};
+  const patterns = new Map();
+
+  // Seed from run_start.frame_paths (absolute paths logged before the agent runs)
+  const lastRunStartIdx = events.reduce((acc, e, i) => e.event === 'run_start' ? i : acc, -1);
+  const runStart = lastRunStartIdx >= 0 ? events[lastRunStartIdx] : events.find(e => e.event === 'run_start');
+  if (runStart?.frame_paths?.length) {
+    runStart.frame_paths.forEach((p, i) => {
+      const frameNumber = i + 1;
+      map[frameNumber] = uniq([...(map[frameNumber] || []), p]);
+      const pattern = inferFramePattern(p, frameNumber);
+      if (!pattern) return;
+      const key = `${pattern.prefix}|${pattern.width}`;
+      const existing = patterns.get(key) || { prefix: pattern.prefix, width: pattern.width, exts: new Set() };
+      existing.exts.add(pattern.ext);
+      patterns.set(key, existing);
+    });
+  }
+
+  for (const ev of events) {
+    if (ev.event !== 'tool_call' || ev.tool !== 'view_frame' || !ev.output?.image_path) continue;
+    const frameNumber = ev.input.n;
+    map[frameNumber] = uniq([...(map[frameNumber] || []), ev.output.image_path]);
+    const pattern = inferFramePattern(ev.output.image_path, frameNumber);
+    if (!pattern) continue;
+    const key = `${pattern.prefix}|${pattern.width}`;
+    const existing = patterns.get(key) || { prefix: pattern.prefix, width: pattern.width, exts: new Set() };
+    existing.exts.add(pattern.ext);
+    patterns.set(key, existing);
+  }
+  for (let n = 1; n <= totalFrames; n++) {
+    const inferred = [];
+    for (const pattern of patterns.values()) {
+      const frameToken = String(n).padStart(pattern.width, '0');
+      for (const ext of pattern.exts) {
+        inferred.push(`${pattern.prefix}${frameToken}${ext}`);
+      }
+    }
+    if (!inferred.length) {
+      const frameToken = String(n).padStart(2, '0');
+      inferred.push(`step_${frameToken}.png`, `step_${frameToken}.jpg`, `step_${frameToken}.jpeg`);
+    }
+    map[n] = uniq([...(map[n] || []), ...inferred]);
+  }
+  return map;
+}
+let FRAME_MAP = {};
+let CHECKED_RENDER_MAP = {};
+let LAST_EVENTS = null;
+function frameImg(n) {
+  return FRAME_MAP[n] || [];
+}
+
+// ── Parse into steps ─────────────────────────────────────────
+function hasVisibleContent(buf) {
+  return buf.some(ev => {
+    if (ev.event === 'run_start' || ev.event === 'finish') return false;
+    if (ev.event === 'llm_text') {
+      const text = (ev.text || '').trim();
+      return text && text !== '.';
+    }
+    return true;
+  });
+}
+
+function parseSteps(events) {
+  const steps = [];
+  let buf = [];
+  let sourceFrame = null;
+  // A comparator selection saves a frame just as save_checkpoint does, so it ends
+  // the cell. It is logged just before the restore_checkpoint that triggered it,
+  // and that restore belongs to the same cell, so the close waits one event.
+  let pendingSelection = null;
+  const closeSelection = () => {
+    steps.push({ events: buf.slice(), savedFrame: pendingSelection.frame_index, sourceFrame,
+      success: true, comparatorEv: pendingSelection });
+    buf = [];
+    sourceFrame = pendingSelection.frame_index;
+    pendingSelection = null;
+  };
+  for (const ev of events) {
+    if (ev.event === 'run_start') { buf = [ev]; continue; }
+    if (pendingSelection) {
+      const isTrigger = ev.event === 'tool_call' && ev.tool === 'restore_checkpoint'
+        && ev.iteration === pendingSelection.iteration;
+      if (isTrigger) { buf.push(ev); closeSelection(); continue; }
+      closeSelection();
+    }
+    buf.push(ev);
+    if (ev.event === 'comparator_selection' && Number.isInteger(ev.frame_index)) {
+      pendingSelection = ev;
+    } else if (ev.event === 'tool_call' && ev.tool === 'save_checkpoint') {
+      steps.push({ events: buf.slice(), savedFrame: ev.input.frame_n, sourceFrame, success: true });
+      buf = [];
+      sourceFrame = ev.input.frame_n;
+    } else if (ev.event === 'checkpoint_duplication') {
+      steps.push({ events: buf.slice(), savedFrame: ev.duplicated_to_frame, sourceFrame, success: true, autoSaved: true });
+      buf = [];
+      sourceFrame = ev.duplicated_to_frame;
+    } else if (ev.event === 'step_rollback_reset') {
+      if (hasVisibleContent(buf)) {
+        steps.push({ events: buf.slice(), savedFrame: null, sourceFrame, success: false,
+          splitReason: 'rollback', rollbackFrame: ev.checkpoint_frame });
+      }
+      buf = [];
+      sourceFrame = ev.checkpoint_frame;
+    } else if (ev.event === 'step_timeout') {
+      if (hasVisibleContent(buf)) {
+        steps.push({ events: buf.slice(), savedFrame: null, sourceFrame, success: false,
+          splitReason: 'timeout', timeoutEv: ev, restoredFrame: ev.restored_frame });
+      }
+      buf = [];
+      sourceFrame = ev.restored_frame;
+    } else if (ev.event === 'no_tool_call_loop_reset' || ev.event === 'hallucination_reset') {
+      if (hasVisibleContent(buf)) {
+        steps.push({ events: buf.slice(), savedFrame: null, sourceFrame, success: false,
+          splitReason: 'noToolLoop', noToolLoopEv: ev, restoredFrame: ev.restored_frame });
+      }
+      buf = [];
+      sourceFrame = ev.restored_frame;
+    }
+  }
+  if (pendingSelection) closeSelection();
+  if (buf.length) {
+    if (hasVisibleContent(buf)) {
+      steps.push({ events: buf, savedFrame: null, sourceFrame, success: false,
+        finishEv: buf.find(e => e.event === 'finish') });
+    }
+  }
+  return steps;
+}
+
+// Map from frame number → source_diagram path for that saved frame.
+// The source_diagram of a compare_render_to_frame is the geometry render of
+// the source checkpoint — so it represents what that saved frame looks like.
+function buildFrameDiagrams(events) {
+  const map = {};
+  for (const ev of events) {
+    if (ev.event !== 'tool_call' || !isCriticTool(ev.tool)) continue;
+    const ci = compareImages(ev);
+    if (!ci) continue;
+    // Legend key A is "Real photo — frame N (source)"
+    const m = (ev.output.legend?.A || '').match(/frame\s+(\d+)/i);
+    if (m) map[parseInt(m[1])] = ci.source;
+  }
+  return map;
+}
+let FRAME_DIAGRAMS = {};
+
+function buildCheckedRenderMap(events) {
+  const map = {};
+  for (const ev of events) {
+    if (ev.event === 'comparator_selection') {
+      const frameIdx = ev.frame_index;
+      const chosen = ev.chosen_node;
+      const candidate = (ev.candidates || []).find(c => c.node_id === chosen);
+      if (candidate?.render_path && Number.isInteger(frameIdx)) {
+        map[frameIdx] = normalizeSrc(candidate.render_path);
+      }
+      continue;
+    }
+    if (ev.event !== 'tool_call' || !isCriticTool(ev.tool)) continue;
+    const ci = compareImages(ev);
+    if (!ci) continue;
+    const sourceMatch = (ev.output.legend?.A || '').match(/frame\s+(\d+)/i);
+    if (sourceMatch) map[parseInt(sourceMatch[1])] = ci.source;
+    if (Number.isInteger(ev.input?.frame_n)) map[ev.input.frame_n] = ci.result;
+  }
+  return map;
+}
+
+function splitAttempts(stepEvents) {
+  const attempts = [];
+  let cur = [];
+  for (const ev of stepEvents) {
+    cur.push(ev);
+    // A refused restore (e.g. to a checkpoint the comparator locked) changes
+    // nothing, so it does not start a new attempt.
+    if (ev.event === 'tool_call' && ev.tool === 'restore_checkpoint' && ev.output?.success !== false) {
+      attempts.push({ events: cur.slice(), hasRestore: true });
+      cur = [];
+    }
+  }
+  if (cur.length) attempts.push({ events: cur, hasRestore: false });
+  return attempts;
+}
+
+// ── Modal ────────────────────────────────────────────────────
+window.handleModalBg = e => { if (e.target === document.getElementById('modal')) closeModal(); };
+window.closeModal    = ()  => document.getElementById('modal').classList.remove('open');
+window.openModal     = (html) => {
+  document.getElementById('modal-content').innerHTML = html;
+  document.getElementById('modal').classList.add('open');
+};
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+let _uid = 0;
+function uid() { return 'u' + (++_uid); }
+window.toggleExpand = id => document.getElementById(id)?.classList.toggle('open');
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function renderJsonBox(value) {
+  return `<div class="json-box">${esc(JSON.stringify(value, null, 2))}</div>`;
+}
+
+function criticStatusClass(value) {
+  const normalized = String(value || '').trim().toUpperCase();
+  if (!normalized) return 'unavailable';
+  if (normalized === 'MATCH' || normalized === 'EXACT_MATCH') return 'exact';
+  if (normalized === 'MISMATCH' || normalized === 'EXTREME DIVERGANCE' || normalized === 'EXTREME DIVERGENCE') return 'mismatch';
+  return 'acceptable';
+}
+
+function renderCriticStatus(value) {
+  if (!value) return '<div class="critic-empty">Not provided.</div>';
+  return `<span class="critic-status ${criticStatusClass(value)}">${esc(value)}</span>`;
+}
+
+function thoughtsBeforeEvent(events, eventIndex) {
+  const thoughts = [];
+  for (let i = eventIndex - 1; i >= 0; i--) {
+    const prev = events[i];
+    if (isThoughtEvent(prev) && isMeaningfulThoughtText(prev.text)) {
+      thoughts.unshift(prev.text.trim());
+      if (thoughts.length >= 2) break;
+      continue;
+    }
+    if (prev.event === 'tool_call' && (
+      prev.tool === 'save_checkpoint'
+      || prev.tool === 'restore_checkpoint'
+    )) {
+      break;
+    }
+  }
+  return thoughts;
+}
+
+function renderThoughtContext(events, eventIndex) {
+  const thoughts = thoughtsBeforeEvent(events, eventIndex);
+  if (!thoughts.length) return '';
+  return `<div class="action-context">
+    <div class="action-context-label">Latest model thought before this action</div>
+    ${thoughts.map(text => `<div class="thought-box action-thought-box">${esc(text)}</div>`).join('')}
+  </div>`;
+}
+
+function renderCriticDetails(ev) {
+  const output = ev.output || {};
+  const foldAnchor = ev.input?.fold_anchor || null;
+  const actionClasses = ev.input?.action_classes || ev.input?.actions_classes || output.action_classes || null;
+  const criticVerdict = output.critic_verdict ?? output.verdict ?? null;
+  const response = {};
+  for (const key of [
+    'critic_verdict',
+    'critic_analysis',
+    'critic_anchor_check',
+    'critic_discrepancies',
+    'critic_error',
+  ]) {
+    if (key in output) response[key] = output[key];
+  }
+
+  return `
+    <div class="critic-detail-grid">
+      <div class="critic-detail-card critic-card-compact">
+        <div class="critic-detail-label">Action Classes Sent To Critic</div>
+        ${actionClasses ? renderJsonBox(actionClasses) : '<div class="critic-empty">No action classes provided for this critic call.</div>'}
+      </div>
+      <div class="critic-detail-card critic-card-wide">
+        <div class="critic-detail-label">Fold Anchor Sent To Critic</div>
+        ${foldAnchor ? renderJsonBox(foldAnchor) : '<div class="critic-empty">No fold anchor provided for this critic call.</div>'}
+      </div>
+      <div class="critic-detail-card critic-card-compact">
+        <div class="critic-detail-label">Verdict B vs D</div>
+        ${renderCriticStatus(criticVerdict)}
+      </div>
+      <div class="critic-detail-card critic-card-full">
+        <div class="critic-detail-label">Full Critic Response</div>
+        ${renderJsonBox(response)}
+      </div>
+    </div>`;
+}
+
+function renderOverviewCriticDetails(ev) {
+  const output = ev.output || {};
+  const overviewAnalysis = output.overview_analysis || null;
+  const recommendation = output.overview_recommendation || null;
+  const analysisError = output.overview_analysis_error || null;
+
+  if (!overviewAnalysis && !recommendation && !analysisError) return '';
+
+  const frameSummary = overviewAnalysis ? {
+    last_correct_frame: overviewAnalysis.last_correct_frame ?? null,
+    first_suspicious_frame: overviewAnalysis.first_suspicious_frame ?? null,
+  } : null;
+  const perFrameNotes = Array.isArray(overviewAnalysis?.per_frame_notes)
+    ? overviewAnalysis.per_frame_notes.filter(Boolean)
+    : [];
+  const fullResponse = overviewAnalysis ? { overview_analysis: overviewAnalysis } : {};
+  if (recommendation) fullResponse.overview_recommendation = recommendation;
+  if (analysisError) fullResponse.overview_analysis_error = analysisError;
+
+  return `
+    <div class="critic-detail-grid">
+      <div class="critic-detail-card critic-card-compact">
+        <div class="critic-detail-label">Overview Critic Frames</div>
+        ${frameSummary ? renderJsonBox(frameSummary) : '<div class="critic-empty">No overview frame summary returned.</div>'}
+      </div>
+      <div class="critic-detail-card critic-card-wide">
+        <div class="critic-detail-label">Overview Recommendation</div>
+        ${recommendation ? `<div class="json-box">${esc(recommendation)}</div>` : '<div class="critic-empty">No overview recommendation returned.</div>'}
+      </div>
+      <div class="critic-detail-card critic-card-full">
+        <div class="critic-detail-label">Overview Analysis</div>
+        ${overviewAnalysis?.analysis ? `<div class="json-box">${esc(overviewAnalysis.analysis)}</div>` : '<div class="critic-empty">No overview analysis returned.</div>'}
+      </div>
+      <div class="critic-detail-card critic-card-full">
+        <div class="critic-detail-label">Per-Frame Notes</div>
+        ${perFrameNotes.length
+          ? `<ol class="critic-list">${perFrameNotes.map(note => `<li>${esc(note)}</li>`).join('')}</ol>`
+          : '<div class="critic-empty">No per-frame notes returned.</div>'}
+      </div>
+      <div class="critic-detail-card critic-card-full">
+        <div class="critic-detail-label">Full Overview Response</div>
+        ${renderJsonBox(fullResponse)}
+      </div>
+    </div>`;
+}
+
+// ── Render one event row ──────────────────────────────────────
+function renderEvent(ev, events, eventIndex) {
+  if (ev.event === 'run_start' || ev.event === 'finish') return '';
+
+  if (ev.event === 'step_rollback_reset') return '';
+
+  if (ev.event === 'step_timeout') {
+    const id = uid();
+    const secs = ev.cumulative_since_checkpoint_seconds != null
+      ? ` · ${Math.round(ev.cumulative_since_checkpoint_seconds)}s / ${Math.round(ev.limit_seconds)}s limit`
+      : '';
+    const countInfo = ev.rollback_count != null ? ` #${ev.rollback_count}` : '';
+    const label = `timeout${countInfo}(restored_frame=${ev.restored_frame}${secs})`;
+    const render = CHECKED_RENDER_MAP[ev.restored_frame];
+    const expandHTML = render
+      ? `<div class="action-context-label">Checkpoint render — frame ${ev.restored_frame}</div>${makeImgTag(render, 'class="event-preview-img"')}`
+      : `<div class="json-box">${esc(JSON.stringify(ev, null, 2))}</div>`;
+    return `<div class="event-row">
+      <div class="event-dot dot-timeout"></div>
+      <div class="event-body">
+        <span class="pill pill-timeout" onclick="toggleExpand('${id}')">
+          <i class="pill-icon">⏱</i>${esc(label)} <span style="opacity:.4;font-size:10px">▾</span>
+        </span>
+        <div id="${id}" class="expand-panel">${expandHTML}</div>
+      </div>
+    </div>`;
+  }
+
+  if (ev.event === 'no_tool_call_loop_reset' || ev.event === 'hallucination_reset') {
+    const id = uid();
+    const noTool = ev.consecutive_no_tool_responses != null ? ev.consecutive_no_tool_responses : '?';
+    const rollback = ev.rollback_count != null ? ` #${ev.rollback_count}` : '';
+    const label = `no-tool loop${rollback} — ${noTool}× no tool call (restored_frame=${ev.restored_frame})`;
+    const render = CHECKED_RENDER_MAP[ev.restored_frame];
+    const expandHTML = render
+      ? `<div class="action-context-label">Checkpoint render — frame ${ev.restored_frame}</div>${makeImgTag(render, 'class="event-preview-img"')}`
+      : `<div class="json-box">${esc(JSON.stringify(ev, null, 2))}</div>`;
+    return `<div class="event-row">
+      <div class="event-dot dot-timeout"></div>
+      <div class="event-body">
+        <span class="pill pill-timeout" onclick="toggleExpand('${id}')">
+          <i class="pill-icon">🔁</i>${esc(label)} <span style="opacity:.4;font-size:10px">▾</span>
+        </span>
+        <div id="${id}" class="expand-panel">${expandHTML}</div>
+      </div>
+    </div>`;
+  }
+
+  if (ev.event === 'backend_error') {
+    const id = uid();
+    const status = ev.status_code != null ? ` [${ev.status_code}]` : '';
+    const label = `backend error — ${ev.backend || 'backend'} raised ${ev.error_type}${status}`;
+    return `<div class="event-row">
+      <div class="event-dot dot-rollback"></div>
+      <div class="event-body">
+        <span class="pill pill-rollback" onclick="toggleExpand('${id}')">
+          <i class="pill-icon">⚠</i>${esc(label)} <span style="opacity:.4;font-size:10px">▾</span>
+        </span>
+        <div id="${id}" class="expand-panel"><div class="json-box">${esc(ev.error_message || '')}</div></div>
+      </div>
+    </div>`;
+  }
+
+  if (ev.event === 'move_on_nudge') {
+    const frame = ev.stuck_on_frame != null ? `frame ${ev.stuck_on_frame}` : 'unknown frame';
+    return `<div class="event-row">
+      <div class="event-dot dot-rollback"></div>
+      <div class="event-body">
+        <span class="pill pill-rollback" style="cursor:default">
+          <i class="pill-icon">⚑</i>move on nudge — stuck on ${esc(String(frame))}
+        </span>
+      </div>
+    </div>`;
+  }
+
+  if (ev.event === 'checkpoint_duplication') {
+    const id = uid();
+    const src = ev.source_frame != null ? ev.source_frame : '?';
+    const dst = ev.duplicated_to_frame;
+    const render = CHECKED_RENDER_MAP[ev.source_frame];
+    const expandHTML = render
+      ? `<div class="action-context-label">Duplicated state — frame ${src}</div>${makeImgTag(render, 'class="event-preview-img"')}`
+      : `<div class="json-box">${esc(JSON.stringify(ev, null, 2))}</div>`;
+    return `<div class="event-row">
+      <div class="event-dot dot-timeout"></div>
+      <div class="event-body">
+        <span class="pill pill-timeout" onclick="toggleExpand('${id}')">
+          <i class="pill-icon">⧉</i>auto checkpoint — frame ${src} → frame ${dst} <span style="opacity:.4;font-size:10px">▾</span>
+        </span>
+        <div id="${id}" class="expand-panel">${expandHTML}</div>
+      </div>
+    </div>`;
+  }
+  if (ev.event === 'comparator_selection') {
+    const id = uid();
+    const frameIdx = ev.frame_index;
+    const candidates = ev.candidates || [];
+    const chosenNode = ev.chosen_node;
+    const chosenLabel = ev.chosen_label;
+    const pathToRoot = ev.path_to_root || [];
+    const rawResponse = ev.raw_response || '';
+
+    const targetSources = ev.target_frame_path || frameImg(frameIdx);
+    const targetCard = `<div class="comparator-card target">
+      ${makeImgTag(targetSources, 'alt="target"')}
+      <div class="comparator-card-label">A · Target frame ${frameIdx}</div>
+    </div>`;
+
+    const candidateCards = candidates.map((c, i) => {
+      const label = 'B' + (i + 1);
+      const isChosen = c.node_id === chosenNode;
+      return `<div class="comparator-card ${isChosen ? 'chosen' : ''}">
+        ${makeImgTag(c.render_path, `alt="${label}"`)}
+        <div class="comparator-card-label">${label} · ${c.node_id}${isChosen ? ' ✓' : ''}</div>
+      </div>`;
+    }).join('');
+
+    const chosenActions = ev.chosen_actions;
+    const actionsHTML = Array.isArray(chosenActions)
+      ? `<div class="comparator-path">Chosen actions (${esc(chosenNode)}): ${
+          chosenActions.length ? chosenActions.map(a => `<code>${esc(a)}</code>`).join(' → ') : '<i>none</i>'}</div>`
+      : `<div class="comparator-path"><i>Chosen actions not recorded in this log — see logs/attempt_tree.json, node ${esc(chosenNode)}.</i></div>`;
+    const pathHTML = pathToRoot.length
+      ? `<div class="comparator-path">Restored path: ${pathToRoot.map(n => n === chosenNode ? `<b>${n}</b>` : n).join(' → ')}</div>`
+      : '';
+
+    const responseHTML = rawResponse
+      ? `<div class="comparator-response">${esc(rawResponse)}</div>`
+      : '';
+
+    return `<div class="event-row">
+      <div class="event-dot dot-comparator"></div>
+      <div class="event-body">
+        <span class="pill pill-comparator" onclick="toggleExpand('${id}')">
+          <i class="pill-icon">⊕</i>comparator(frame=${frameIdx}, ${candidates.length} candidates → ${chosenNode})
+          <span style="opacity:.4;font-size:10px">▾</span>
+        </span>
+        <div id="${id}" class="expand-panel">
+          <div class="comparator-grid">${targetCard}${candidateCards}</div>
+          ${actionsHTML}
+          ${pathHTML}
+          ${responseHTML}
+        </div>
+      </div>
+    </div>`;
+  }
+
+  if (ev.event === 'llm_text') {
+    const text = ev.text.trim();
+    if (!isMeaningfulThoughtText(text)) return '';
+    const id      = uid();
+    const preview = text.replace(/\n/g, ' ').slice(0, 90);
+    const isThought = isThoughtEvent(ev);
+    const dotClass = isThought ? 'dot-thought' : 'dot-model';
+    const pillClass = isThought ? 'pill-thought' : 'pill-model';
+    const icon = isThought ? '💭' : '✎';
+    const title = isThought ? 'Gemini reasoning' : 'Model text';
+    const meta = [];
+    if (isThought && ev.thought_signature_present) meta.push('signature');
+    return `<div class="event-row">
+      <div class="event-dot ${dotClass}"></div>
+      <div class="event-body">
+        <span class="pill ${pillClass}" onclick="toggleExpand('${id}')" title="${title}">
+          <i class="pill-icon">${icon}</i> ${esc(preview)}${text.length > 90 ? '…' : ''}
+        </span>
+        <div id="${id}" class="expand-panel">
+          ${isThought || meta.length ? `<div class="action-context-label">${isThought ? 'Gemini thought' : 'Model text'}${meta.length ? ' · ' + esc(meta.join(' · ')) : ''}</div>` : ''}
+          <div class="thought-box">${esc(text)}</div>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  if (ev.event === 'tool_call') {
+    const c   = cat(ev.tool);
+    const lbl = toolLabel(ev);
+    const id  = uid();
+    let expandHTML = '';
+    const thoughtContext = isDecisionTool(ev.tool) ? renderThoughtContext(events, eventIndex) : '';
+
+    if (ev.tool === 'get_current_state') {
+      expandHTML = `<div class="json-box">${esc(JSON.stringify(ev.output.geometry, null, 2))}</div>`;
+    } else if (ev.tool === 'render_current') {
+      const src = imgFromEvent(ev);
+      if (!src) return '';
+      expandHTML = makeImgTag(src, 'class="event-preview-img"');
+    } else if (ev.tool === 'generate_checkpoint_overview') {
+      const src = imgFromEvent(ev);
+      if (!src) return '';
+      const layout = ev.output?.layout ? `<div class="action-context-label">${esc(ev.output.layout)}</div>` : '';
+      const overviewDetails = renderOverviewCriticDetails(ev);
+      expandHTML = `${layout}${makeImgTag(src, 'class="event-preview-img"')}${overviewDetails}`;
+    } else if (isCriticTool(ev.tool)) {
+      const ci = compareImages(ev);
+      if (!ci) return '';
+      const criticDetails = ev.tool === 'ask_critic' ? renderCriticDetails(ev) : '';
+      expandHTML = `
+        <div class="compare-wrap">
+          <div class="compare-panel compare-full">
+            <img class="critic-grid-img" src="${repoUrl(normalizeSrc(ci.grid))}" onclick="zoomImg(this)" title="Full comparison grid">
+          </div>
+        </div>
+        ${criticDetails}`;
+    } else if (ev.tool === 'view_frame') {
+      const src = imgFromEvent(ev);
+      expandHTML = makeImgTag(src, 'class="event-preview-img"');
+    } else if (ev.tool === 'observe_movement') {
+      const src = imgFromEvent(ev);
+      const sampleInfo = Array.isArray(ev.output?.sampled_global_indices) && ev.output.sampled_global_indices.length
+        ? `<div class="action-context-label">Sampled global frames: ${esc(ev.output.sampled_global_indices.join(', '))}</div>`
+        : '';
+      expandHTML = `${sampleInfo}${makeImgTag(src, 'class="event-preview-img motion-strip-img"')}`;
+    } else if (ev.output && Object.keys(ev.output).length > 1) {
+      const small = Object.fromEntries(
+        Object.entries(ev.output).filter(([k]) => !['verdict_instructions','legend'].includes(k))
+      );
+      expandHTML = `<div class="json-box">${esc(JSON.stringify(small, null, 2))}</div>`;
+    }
+
+    if (thoughtContext) {
+      expandHTML = thoughtContext + expandHTML;
+    }
+
+    const clickAttr = expandHTML ? `onclick="toggleExpand('${id}')"` : '';
+    const chevron   = expandHTML ? ' <span style="opacity:.4;font-size:10px">▾</span>' : '';
+
+    return `<div class="event-row">
+      <div class="event-dot dot-${c}"></div>
+      <div class="event-body">
+        <span class="pill pill-${c}" ${clickAttr}>
+          <i class="pill-icon">${CAT_ICON[c]}</i>${esc(lbl)}${chevron}
+        </span>
+        ${expandHTML ? `<div id="${id}" class="expand-panel">${expandHTML}</div>` : ''}
+      </div>
+    </div>`;
+  }
+  return '';
+}
+
+// ── Render one step block ─────────────────────────────────────
+const MAIN_HORIZONTAL_PADDING_PX = 48;
+const STAIRCASE_STEP_MIN_WIDTH_PX = 560;
+const STAIRCASE_STEP_WIDTH_RATIO = 0.5;
+const STAIRCASE_LEFT_ANCHORED_FRAMES = 2;
+
+function staircaseStyle(targetFrame, totalFrames) {
+  const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+  const availableWidth = Math.max(0, viewportWidth - MAIN_HORIZONTAL_PADDING_PX);
+  const stepWidth = Math.min(
+    availableWidth || STAIRCASE_STEP_MIN_WIDTH_PX,
+    Math.max(
+      STAIRCASE_STEP_MIN_WIDTH_PX,
+      availableWidth * STAIRCASE_STEP_WIDTH_RATIO,
+    ),
+  );
+  const maxOffset = Math.max(0, availableWidth - stepWidth);
+  const frameIndex = Math.max(0, Math.max(1, targetFrame || 1) - STAIRCASE_LEFT_ANCHORED_FRAMES);
+  const travelFrames = Math.max(1, totalFrames - STAIRCASE_LEFT_ANCHORED_FRAMES);
+  const offsetPx = (maxOffset * frameIndex) / travelFrames;
+  return `margin-left:${offsetPx.toFixed(2)}px; width:${stepWidth.toFixed(2)}px`;
+}
+
+function isSuccessfulStopReason(stopReason) {
+  return stopReason === 'all_frames_solved';
+}
+
+function finishBadgeText(stopReason) {
+  if (stopReason === 'all_frames_solved') return '✓ Complete';
+  if (stopReason === 'max_iterations') return '✗ Max iterations reached';
+  if (!stopReason) return '· In progress';
+  return `✗ ${stopReason}`;
+}
+
+function renderStep(step, index, totalFrames) {
+  const isInit   = step.sourceFrame === null;
+  const stepNum  = isInit ? 'Init' : `Step ${index}`;
+  const targetFrame = step.savedFrame
+    || (step.sourceFrame
+      ? Math.min(step.sourceFrame + 1, totalFrames)
+      : null);
+  const stepStyle = staircaseStyle(targetFrame, totalFrames);
+  const title    = isInit
+    ? 'Frame 1 — initial state'
+    : step.sourceFrame === targetFrame
+      ? `Frame ${step.sourceFrame}`
+      : `Frame ${step.sourceFrame} → Frame ${step.savedFrame || targetFrame}`;
+
+  const selection = step.comparatorEv;
+  const chosenCandidate = selection
+    ? (selection.candidates || []).find(c => c.node_id === selection.chosen_node)
+    : null;
+  const statusHTML = selection
+    ? `<span class="step-pill pill-saved">⚖ Selected by comparator · frame ${step.savedFrame}</span>`
+    : step.success && step.autoSaved
+    ? `<span class="step-pill pill-timeout-head">⧉ Auto checkpoint · frame ${step.savedFrame}</span>`
+    : step.success
+    ? `<span class="step-pill pill-saved">✓ Saved frame ${step.savedFrame}</span>`
+    : step.splitReason === 'rollback'
+      ? `<span class="step-pill pill-running">· continued</span>`
+      : step.splitReason === 'timeout'
+      ? `<span class="step-pill pill-timeout-head">⏱ Timed out · restored frame ${step.restoredFrame}</span>`
+      : step.splitReason === 'noToolLoop'
+      ? `<span class="step-pill pill-timeout-head">🔁 No-tool loop · restored frame ${step.restoredFrame}</span>`
+      : step.finishEv
+      ? `<span class="step-pill pill-failed">✗ ${step.finishEv.stop_reason}</span>`
+      : `<span class="step-pill pill-running">· in progress</span>`;
+
+  let sideHTML = '';
+  if (targetFrame) {
+    sideHTML += `<div class="frame-box">
+      <div class="lbl">Target · frame ${targetFrame}</div>
+      ${makeImgTag(frameImg(targetFrame))}
+    </div>`;
+  }
+  const lastCompare = [...step.events].reverse().find(
+    e => e.event === 'tool_call' && isCriticTool(e.tool)
+  );
+  const lastCompareCi = lastCompare ? compareImages(lastCompare) : null;
+  if (chosenCandidate?.render_path) {
+    // The comparator's pick, not the last attempt's render, is what was saved.
+    sideHTML += `${sideHTML ? '<hr class="frame-sep">' : ''}<div class="frame-box">
+      <div class="lbl">Final state · ${esc(selection.chosen_node)}</div>
+      ${makeImgTag(chosenCandidate.render_path)}
+    </div>`;
+  } else if (lastCompareCi && step.success) {
+    const ci = lastCompareCi;
+    sideHTML += `${sideHTML ? '<hr class="frame-sep">' : ''}<div class="frame-box">
+      <div class="lbl">Final state</div>
+      <img src="${repoUrl(normalizeSrc(ci.result))}" onclick="zoomImg(this)">
+    </div>`;
+  } else if (!lastCompare && step.savedFrame && FRAME_DIAGRAMS[step.savedFrame]) {
+    // No compare_render in this step (e.g. init), but we have the source_diagram
+    // from the next step's first comparison, which IS the geometry of this saved frame.
+    sideHTML += `${sideHTML ? '<hr class="frame-sep">' : ''}<div class="frame-box">
+      <div class="lbl">Saved state</div>
+      <img src="${repoUrl(normalizeSrc(FRAME_DIAGRAMS[step.savedFrame]))}" onclick="zoomImg(this)">
+    </div>`;
+  }
+
+  const attempts   = splitAttempts(step.events);
+  const eventsHTML = attempts.map((a, i) => {
+    const marker = i > 0 ? `<div class="retry-marker">↩ RETRY — Attempt ${i + 1}</div>` : '';
+    const rows = [];
+    for (let eventIndex = 0; eventIndex < a.events.length; eventIndex++) {
+      const ev = a.events[eventIndex];
+      if (ev.event === 'llm_text') {
+        const text = String(ev.text || '').trim();
+        if (isCompactableRepeatedLlmText(text)) {
+          let count = 1;
+          while (eventIndex + count < a.events.length) {
+            const next = a.events[eventIndex + count];
+            if (next.event !== 'llm_text') break;
+            const nextText = String(next.text || '').trim();
+            if (nextText !== text || !isCompactableRepeatedLlmText(nextText)) break;
+            count += 1;
+          }
+          if (count >= 3) {
+            rows.push(renderCollapsedLlmText(ev, text, count));
+            eventIndex += count - 1;
+            continue;
+          }
+        }
+      }
+      rows.push(renderEvent(ev, a.events, eventIndex));
+    }
+    return marker + rows.join('');
+  }).join('');
+
+  return `<div class="step-block" id="step-${index}" style="${stepStyle}">
+    <div class="step-head">
+      <span class="step-number">${stepNum}</span>
+      <span class="step-title">${title}</span>
+      ${statusHTML}
+    </div>
+    <div class="step-body">
+      <div class="step-side">${sideHTML || '<span style="color:var(--muted);font-size:11px">—</span>'}</div>
+      <div class="step-events">${eventsHTML}</div>
+    </div>
+  </div>`;
+}
+
+// ── Full render ───────────────────────────────────────────────
+function renderAll(events) {
+  LAST_EVENTS = events;
+  const lastRunStartIdx = events.reduce((acc, e, i) => e.event === 'run_start' ? i : acc, -1);
+  const runStart = events[lastRunStartIdx >= 0 ? lastRunStartIdx : 0];
+  const finish   = events.slice(lastRunStartIdx + 1).find(e => e.event === 'finish');
+  const totalFrames = runStart.frame_count;
+  // Runs recorded before the field was renamed carry the old work_dir name.
+  RUN_WORK_DIR_ABS = String(runStart.out_dir || runStart.work_dir || '').replace(/\/$/, '');
+  FRAME_MAP         = buildFrameMap(events, totalFrames);
+  FRAME_DIAGRAMS    = buildFrameDiagrams(events);
+  CHECKED_RENDER_MAP = buildCheckedRenderMap(events);
+  const checkedRenderMap = CHECKED_RENDER_MAP;
+
+  document.getElementById('dir-display').textContent = RUN_DIR;
+
+  document.getElementById('header-meta').innerHTML = [
+    `<span class="badge"><b>${runStart.model}</b></span>`,
+    `<span class="badge"><b>${runStart.frame_count}</b> frames</span>`,
+    `<span class="badge"><b>${runStart.max_iterations}</b> max iter</span>`,
+    finish ? `<span class="badge ${isSuccessfulStopReason(finish.stop_reason) ? 'ok' : 'err'}">
+      stop: <b>${finish.stop_reason}</b> · iter <b>${finish.iterations_completed}</b></span>` : '',
+    finish && finish.checkpoints?.length
+      ? `<span class="badge ok">checkpoints: <b>[${finish.checkpoints.join(', ')}]</b></span>` : '',
+  ].join('');
+
+  const savedFrames = new Set(finish?.checkpoints ||
+    events.filter(e => e.event === 'tool_call' && e.tool === 'save_checkpoint' && e.output?.success)
+          .map(e => e.input?.frame_n).filter(Number.isInteger));
+
+
+  const autoFrames = new Set(
+    events.filter(e => e.event === 'checkpoint_duplication')
+          .map(e => e.duplicated_to_frame).filter(Number.isInteger)
+  );
+  const checkedRailHTML = Array.from({length: totalFrames}, (_, i) => {
+    const f = i + 1;
+    const checkedRender = checkedRenderMap[f];
+    if (!checkedRender) {
+      return `<div class="rail-frame placeholder">
+        <div class="rfl">Checked ${f}</div>
+      </div>`;
+    }
+    return `<div class="rail-frame">
+      ${makeImgTag(checkedRender, `alt="checked render ${f}" loading="eager" decoding="sync" fetchpriority="high"`)}
+      <div class="rfl">Checked ${f}</div>
+    </div>`;
+  }).join('');
+  const frameRailHTML = Array.from({length: totalFrames}, (_, i) => {
+    const f = i + 1, saved = savedFrames.has(f), auto = autoFrames.has(f);
+    return `<div class="rail-frame ${auto ? 'auto' : saved ? 'saved' : ''}">
+      ${auto ? '<span class="check" style="color:var(--timeout)" title="Auto checkpoint">⧉</span>' : saved ? '<span class="check">✓</span>' : ''}
+      ${makeImgTag(frameImg(f), `alt="frame ${f}" loading="eager" decoding="sync" fetchpriority="high"`)}
+      <div class="rfl">Frame ${f}</div>
+    </div>`;
+  }).join('');
+
+  const steps    = parseSteps(events);
+  const stepsHTML = steps.map((s, i) => renderStep(s, i, totalFrames)).join('');
+
+  let finishHTML = '';
+  if (finish) {
+    const ok = isSuccessfulStopReason(finish.stop_reason);
+    finishHTML = `<div class="finish-banner">
+      <span class="step-pill ${ok ? 'pill-saved' : 'pill-failed'}" style="font-size:13px">
+        ${finishBadgeText(finish.stop_reason)}
+      </span>
+      <span class="fb-reason">Iterations: <span>${finish.iterations_completed} / ${finish.max_iterations}</span></span>
+      <span class="fb-cp">Saved checkpoints: <b>[${(finish.checkpoints||[]).join(', ')}]</b></span>
+    </div>`;
+  }
+
+  document.getElementById('root').innerHTML = `
+    <div id="main">
+      <div class="progress-rail" style="--frame-count:${totalFrames}">
+        <div class="rail-row">${checkedRailHTML}</div>
+        <div class="rail-row">${frameRailHTML}</div>
+      </div>
+      ${stepsHTML}
+      ${finishHTML}
+    </div>`;
+}
+
+// ── Landing page (no ?dir) ────────────────────────────────────
+function showLanding(runDirs) {
+  const examplesHTML = runDirs.length
+    ? `<div class="example-list">
+        <p>Found run directories:</p>
+        ${runDirs.map(d => `<a class="example-item" href="?dir=${encodeURIComponent(d)}">${d}</a>`).join('')}
+       </div>`
+    : '<p style="margin-top:12px;color:var(--muted);font-size:11px">No run dirs detected — enter one manually above.</p>';
+
+  document.getElementById('root').innerHTML = `
+    <div id="landing">
+      <h2>Select a run directory</h2>
+      <p>Pass <code style="color:var(--inspect)">?dir=out/run_20260903_140704_gemini-3.5-flash-lite_test</code> in the URL,
+         or enter a path below.</p>
+      <input id="dir-input" type="text" placeholder="out/run_YYYYMMDD_HHMMSS_model_sequence" spellcheck="false">
+      <br><button id="go-btn" onclick="goToDir()">Open →</button>
+      ${examplesHTML}
+    </div>`;
+}
+window.goToDir = () => {
+  const v = document.getElementById('dir-input').value.trim();
+  if (v) location.href = '?dir=' + encodeURIComponent(v);
+};
+document.addEventListener('keydown', e => {
+  const inp = document.getElementById('dir-input');
+  if (inp && e.key === 'Enter' && document.activeElement === inp) goToDir();
+});
+
+let resizeRenderTimer = null;
+window.addEventListener('resize', () => {
+  if (!LAST_EVENTS) return;
+  clearTimeout(resizeRenderTimer);
+  resizeRenderTimer = setTimeout(() => renderAll(LAST_EVENTS), 80);
+});
+
+// ── Dataset directory probe ───────────────────────────────────
+// When frame_paths are absent from the log, fetch the dataset directory listing
+// and sort the image filenames (they sort in frame order by their frame numbers).
+async function probeFrameDirectory(dirPath) {
+  try {
+    const resp = await fetch(repoUrl(dirPath) + '/');
+    if (!resp.ok) return [];
+    const html = await resp.text();
+    const matches = [...html.matchAll(/href="([^"?#]+\.(jpg|jpeg|png))"/gi)];
+    const filenames = matches
+      .map(m => m[1])
+      .filter(f => !f.startsWith('http') && !f.startsWith('/'));
+    return filenames.sort().map(f => dirPath + '/' + f);
+  } catch { return []; }
+}
+
+// ── Boot ─────────────────────────────────────────────────────
+async function boot() {
+  if (!RUN_DIR) {
+    // Try to discover run dirs by probing a known pattern
+    // (best-effort; list a few likely candidates via link scan)
+    showLanding([]);
+    return;
+  }
+
+  // The log moved into logs/; runs recorded before that have it at the root.
+  const candidates = [RUN_DIR + '/logs/agent_log.jsonl', RUN_DIR + '/agent_log.jsonl'];
+  const url = candidates.join(' or ');
+  let text, err;
+  for (const candidate of candidates) {
+    try {
+      const r = await fetch(repoUrl(candidate));
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      text = await r.text();
+      err = undefined;
+      break;
+    } catch (e) { err = e; }
+  }
+  if (text === undefined) {
+    document.getElementById('root').innerHTML = `
+      <div id="error-box">
+        <b>Could not load log file</b><br><br>
+        <code>${esc(url)}</code><br><br>
+        ${esc(String(err))}<br><br>
+        <span style="opacity:.7">Make sure you're serving this file via a local HTTP server (not file://),
+        and that the run directory exists.</span>
+      </div>`;
+    return;
+  }
+
+  const events = text.trim().split('\n').filter(Boolean).map(JSON.parse);
+
+  // If run_start has no frame_paths, probe the dataset directory from any
+  // view_frame output so all frames appear in the header rail from step 1.
+  const lastRunStartIdx = events.reduce((acc, e, i) => e.event === 'run_start' ? i : acc, -1);
+  const runStart = lastRunStartIdx >= 0 ? events[lastRunStartIdx] : events.find(e => e.event === 'run_start');
+  if (runStart && (!runStart.frame_paths || !runStart.frame_paths.length)) {
+    const viewFrameEv = events.find(
+      e => e.event === 'tool_call' && e.tool === 'view_frame' && e.output?.image_path
+    );
+    if (viewFrameEv) {
+      const imgPath = normalizeSrc(viewFrameEv.output.image_path);
+      const dirPath = imgPath.slice(0, imgPath.lastIndexOf('/'));
+      const paths = await probeFrameDirectory(dirPath);
+      if (paths.length) {
+        runStart.frame_paths = paths;
+      }
+    }
+  }
+
+  renderAll(events);
+}
+
+boot();
+</script>
+</body>
+</html>
